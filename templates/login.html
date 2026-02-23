@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}InstaClean — Login{% endblock %}
+
+{% block content %}
+<div class="login-wrapper">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-icon">
+                <i class="fab fa-instagram"></i>
+            </div>
+            <h1>InstaClean</h1>
+            <p class="text-muted">Manage your Instagram follow requests</p>
+            <div class="privacy-badge">
+                <i class="fas fa-shield-halved"></i> No data stored — everything stays in your browser
+            </div>
+        </div>
+
+        <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="sessionId">
+                    <i class="fas fa-key"></i> Session ID
+                </label>
+                <input type="text" id="sessionId" name="session_id"
+                       placeholder="Paste your sessionid cookie" required>
+            </div>
+
+            <div class="form-group">
+                <label for="dsUserId">
+                    <i class="fas fa-user"></i> User ID
+                </label>
+                <input type="text" id="dsUserId" name="ds_user_id"
+                       placeholder="Paste your ds_user_id cookie" required>
+            </div>
+
+            <div class="form-group">
+                <label for="csrfToken">
+                    <i class="fas fa-shield-halved"></i> CSRF Token
+                </label>
+                <input type="text" id="csrfToken" name="csrf_token"
+                       placeholder="Paste your csrftoken cookie" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full" id="login-btn">
+                <span class="btn-text">Connect to Instagram</span>
+                <span class="btn-loading" style="display:none">
+                    <i class="fas fa-spinner fa-spin"></i> Connecting...
+                </span>
+            </button>
+
+            <div id="login-error" class="error-msg" style="display:none"></div>
+        </form>
+
+        <!-- How to find cookies guide -->
+        <div class="guide-section">
+            <button class="guide-toggle" onclick="toggleGuide()">
+                <i class="fas fa-circle-question"></i>
+                How to find your cookies
+                <i class="fas fa-chevron-down guide-arrow"></i>
+            </button>
+            <div id="guide-content" class="guide-content" style="display:none">
+                <ol>
+                    <li>Open <strong>instagram.com</strong> in Chrome and log in</li>
+                    <li>Press <strong>F12</strong> to open Developer Tools</li>
+                    <li>Go to <strong>Application</strong> tab (top menu)</li>
+                    <li>In the left sidebar, click <strong>Cookies</strong> &rarr; <strong>https://www.instagram.com</strong></li>
+                    <li>Find and copy these 3 values:
+                        <ul>
+                            <li><code>sessionid</code></li>
+                            <li><code>ds_user_id</code></li>
+                            <li><code>csrftoken</code></li>
+                        </ul>
+                    </li>
+                    <li>Paste each value in the fields above</li>
+                </ol>
+                <div class="guide-note">
+                    <i class="fas fa-lock"></i>
+                    Your cookies are only stored in your browser session and are never saved to any database.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

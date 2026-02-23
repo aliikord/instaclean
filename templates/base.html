@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}InstaClean{% endblock %}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="bg-gradient"></div>
+
+    <nav class="navbar">
+        <a href="/" class="nav-brand">
+            <i class="fab fa-instagram"></i>
+            <span>InstaClean</span>
+        </a>
+        {% if session.get('ig_username') %}
+        <div class="nav-user">
+            <img src="/api/proxy-image?url={{ session.get('ig_profile_pic', '') | urlencode }}" class="nav-avatar"
+                 onerror="this.src='{{ url_for('static', filename='img/default-avatar.svg') }}'">
+            <span class="nav-username">@{{ session.get('ig_username') }}</span>
+            <button onclick="logout()" class="btn btn-ghost btn-sm">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
+        </div>
+        {% endif %}
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Toast container -->
+    <div id="toast-container"></div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

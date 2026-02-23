@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}InstaClean — Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <!-- Feature tabs -->
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('nfb')" id="tab-nfb">
+            <i class="fas fa-user-xmark"></i>
+            Not Following Back
+            <span class="tab-badge" id="nfb-count" style="display:none">0</span>
+        </button>
+        <button class="tab" onclick="switchTab('sent')" id="tab-sent">
+            <i class="fas fa-paper-plane"></i>
+            Sent Requests
+            <span class="tab-badge" id="sent-count" style="display:none">0</span>
+        </button>
+        <button class="tab" onclick="switchTab('pending')" id="tab-pending">
+            <i class="fas fa-inbox"></i>
+            Received Requests
+            <span class="tab-badge" id="pending-count" style="display:none">0</span>
+        </button>
+    </div>
+
+    <!-- Sent Requests Panel (outgoing — people YOU asked to follow) -->
+    <div class="panel" id="panel-sent">
+        <div class="panel-header">
+            <div>
+                <h2>Sent Follow Requests</h2>
+                <p class="text-muted">Check who you sent a follow request to</p>
+            </div>
+            <div class="panel-actions">
+                <button class="btn btn-danger" onclick="autoCancelSent()" id="auto-cancel-sent-btn" style="display:none">
+                    <i class="fas fa-ban"></i> Cancel All Pending
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 1: Get the file -->
+        <div class="sent-step-card">
+            <div class="step-header">
+                <span class="step-number">1</span>
+                <span>Get your data from Instagram</span>
+            </div>
+            <a href="https://accountscenter.instagram.com/info_and_permissions/dyi/" target="_blank" class="btn btn-ig btn-full" id="download-ig-btn">
+                <i class="fab fa-instagram"></i> Open Instagram Download Page
+            </a>
+            <div class="step-instructions">
+                <p>On that page:</p>
+                <ol>
+                    <li>Select your Instagram account</li>
+                    <li>Choose <strong>"Some of your information"</strong></li>
+                    <li>Check only <strong>"Followers and following"</strong></li>
+                    <li>Format: <strong>HTML</strong>, Date range: <strong>All time</strong></li>
+                    <li>Click <strong>"Create file"</strong> → wait for email</li>
+                    <li>Download the zip, find <code>pending_follow_requests.html</code></li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Step 2: Upload or paste -->
+        <div class="sent-step-card">
+            <div class="step-header">
+                <span class="step-number">2</span>
+                <span>Upload the file or paste usernames</span>
+            </div>
+
+            <div class="sent-input-tabs">
+                <button class="sent-tab active" onclick="switchSentInput('upload')" id="sent-tab-upload">
+                    <i class="fas fa-file-upload"></i> Upload File
+                </button>
+                <button class="sent-tab" onclick="switchSentInput('paste')" id="sent-tab-paste">
+                    <i class="fas fa-keyboard"></i> Paste Usernames
+                </button>
+            </div>
+
+            <div class="sent-input-panel active" id="sent-input-upload">
+                <div class="upload-area" id="upload-area" onclick="document.getElementById('export-file').click()">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>Drop your <strong>Instagram data export zip</strong> or folder here</p>
+                    <small class="text-muted">We'll find pending_follow_requests.html automatically</small>
+                    <input type="file" id="export-file" accept=".zip,.html,.htm" style="display:none" onchange="handleSentFile(this)" multiple webkitdirectory>
+                </div>
+                <div class="upload-alt">
+                    <span class="text-muted">or</span>
+                    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('export-zip').click()">
+                        <i class="fas fa-file-zipper"></i> Upload zip file
+                    </button>
+                    <input type="file" id="export-zip" accept=".zip" style="display:none" onchange="handleSentZip(this)">
+                </div>
+            </div>
+
+            <div class="sent-input-panel" id="sent-input-paste">
+                <textarea id="sent-username-input" class="username-textarea"
+                          placeholder="username1&#10;username2&#10;username3&#10;..."></textarea>
+            </div>
+
+            <button class="btn btn-primary btn-full" onclick="fetchSentRequests()" id="fetch-sent-btn">
+                <i class="fas fa-search"></i> Check Requests
+            </button>
+        </div>
+
+        <!-- Filter buttons (shown after results) -->
+        <div class="filter-bar" id="sent-filter-bar" style="display:none">
+            <button class="filter-btn active" onclick="filterSent('all')" id="sent-filter-all">
+                All <span id="sent-filter-all-count">0</span>
+            </button>
+            <button class="filter-btn" onclick="filterSent('pending')" id="sent-filter-pending">
+                Still Pending <span id="sent-filter-pending-count">0</span>
+            </button>
+            <button class="filter-btn" onclick="filterSent('accepted')" id="sent-filter-accepted">
+                Accepted <span id="sent-filter-accepted-count">0</span>
+            </button>
+            <button class="filter-btn" onclick="filterSent('not_found')" id="sent-filter-not-found">
+                Not Found <span id="sent-filter-not-found-count">0</span>
+            </button>
+        </div>
+
+        <div id="sent-list" class="user-list">
+            <div class="empty-state">
+                <i class="fas fa-paper-plane"></i>
+                <p>Upload your data export or paste usernames to check sent requests</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Received Requests Panel (incoming — people who asked to follow YOU) -->
+    <div class="panel" id="panel-pending">
+        <div class="panel-header">
+            <div>
+                <h2>Received Requests</h2>
+                <p class="text-muted">People who requested to follow you</p>
+            </div>
+            <div class="panel-actions">
+                <button class="btn btn-primary" onclick="fetchPending()" id="fetch-pending-btn">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button class="btn btn-danger" onclick="autoCancelAll()" id="auto-cancel-btn" style="display:none">
+                    <i class="fas fa-ban"></i> Decline All
+                </button>
+            </div>
+        </div>
+
+        <div id="pending-summary" class="nfb-summary" style="display:none">
+            <div class="summary-stat">
+                <span class="summary-number" id="pending-total">0</span>
+                <span class="summary-label">Pending requests</span>
+            </div>
+        </div>
+
+        <div id="pending-list" class="user-list">
+            <div class="loading-state">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Loading pending requests...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Not Following Back Panel -->
+    <div class="panel active" id="panel-nfb">
+        <div class="panel-header">
+            <div>
+                <h2>Not Following Back</h2>
+                <p class="text-muted">People you follow who don't follow you back</p>
+            </div>
+            <div class="panel-actions">
+                <button class="btn btn-primary" onclick="fetchNotFollowingBack()" id="fetch-nfb-btn">
+                    <i class="fas fa-magnifying-glass"></i> Analyze
+                </button>
+                <button class="btn btn-danger" onclick="autoUnfollowAll()" id="auto-unfollow-btn" style="display:none">
+                    <i class="fas fa-user-xmark"></i> Auto Unfollow All
+                </button>
+            </div>
+        </div>
+
+        <div id="nfb-summary" class="nfb-summary" style="display:none">
+            <div class="summary-stat">
+                <span class="summary-number" id="nfb-total">0</span>
+                <span class="summary-label">Don't follow back</span>
+            </div>
+        </div>
+
+        <div id="nfb-list" class="user-list">
+            <div class="empty-state">
+                <i class="fas fa-user-xmark"></i>
+                <p>Click "Analyze" to find who doesn't follow you back</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action bar (shown when users are selected) -->
+    <div class="action-bar" id="action-bar" style="display:none">
+        <div class="action-bar-left">
+            <button class="btn btn-ghost btn-sm" onclick="toggleSelectAll()">
+                <i class="fas fa-check-double"></i>
+                <span id="select-all-text">Select All</span>
+            </button>
+            <span class="selected-count">
+                <span id="selected-count">0</span> selected
+            </span>
+        </div>
+        <button class="btn btn-danger" onclick="startBatchAction()" id="batch-action-btn">
+            <i class="fas fa-trash"></i>
+            <span id="batch-action-text">Cancel Selected</span>
+        </button>
+    </div>
+</div>
+
+<!-- Progress overlay -->
+<div class="progress-overlay" id="progress-overlay" style="display:none">
+    <div class="progress-card">
+        <h2 id="progress-title">Cancelling Requests...</h2>
+
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+        </div>
+
+        <div class="progress-stats">
+            <span id="progress-text">0 / 0</span>
+            <span id="progress-pct">0%</span>
+        </div>
+
+        <div class="progress-details">
+            <div class="progress-counts">
+                <span class="count-success">
+                    <i class="fas fa-check"></i> <span id="progress-succeeded">0</span> done
+                </span>
+                <span class="count-fail">
+                    <i class="fas fa-xmark"></i> <span id="progress-failed">0</span> failed
+                </span>
+            </div>
+        </div>
+
+        <div class="progress-log" id="progress-log"></div>
+
+        <button class="btn btn-ghost" id="progress-close-btn" style="display:none" onclick="closeProgress()">
+            <i class="fas fa-check"></i> Done
+        </button>
+    </div>
+</div>
+{% endblock %}

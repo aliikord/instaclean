@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+.env
+*.zip
+instagram-*/
+cancel_follow_requests.py
