@@ -270,6 +270,7 @@ async function resolveUsernames() {
 
 let sentFile = null;
 let sentExtractedUsernames = null;
+let sentExtractedDates = {};
 let allSentUsers = [];
 
 function switchSentInput(mode) {
@@ -327,8 +328,9 @@ async function handleSentZip(input) {
             return;
         }
 
-        // Store the extracted usernames directly
+        // Store the extracted usernames and dates
         sentExtractedUsernames = data.usernames;
+        sentExtractedDates = data.dates || {};
         area.innerHTML = `<i class="fas fa-check-circle" style="color:var(--success);font-size:2rem"></i><p>Found <strong>${data.usernames.length} usernames</strong> in zip</p><small class="text-muted">Click "Check Requests" below</small>`;
     } catch (e) {
         area.innerHTML = `<i class="fas fa-exclamation-triangle" style="color:var(--danger);font-size:2rem"></i><p>Failed to extract zip</p>`;
@@ -413,8 +415,14 @@ async function fetchSentRequests() {
                 document.getElementById('sent-filter-bar').style.display = 'flex';
                 updateBadge('sent-count', counts.pending);
 
+                const cancelBtn = document.getElementById('auto-cancel-sent-btn');
+                cancelBtn.style.display = 'inline-flex';
                 if (counts.pending > 0) {
-                    document.getElementById('auto-cancel-sent-btn').style.display = 'inline-flex';
+                    cancelBtn.innerHTML = `<i class="fas fa-ban"></i> Cancel All Pending (${counts.pending})`;
+                    cancelBtn.disabled = false;
+                } else {
+                    cancelBtn.innerHTML = `<i class="fas fa-ban"></i> No Pending to Cancel`;
+                    cancelBtn.disabled = true;
                 }
 
                 // Remove progress header
@@ -442,6 +450,8 @@ async function fetchSentRequests() {
                               msg.status === 'not_found' ? 'Not Found' : 'Not Pending';
             const hasId = msg.user_id != null;
 
+            const dateStr = msg.request_date || '';
+
             const row = document.createElement('div');
             row.className = 'user-row';
             row.setAttribute('data-user-id', msg.user_id || '');
@@ -451,11 +461,12 @@ async function fetchSentRequests() {
                 <img src="${proxyImg(msg.profile_pic_url)}" class="avatar" onerror="this.src='/static/img/default-avatar.svg'" loading="lazy">
                 <div class="user-info">
                     <span>
-                        <span class="username">@${msg.username}</span>
+                        <a href="https://www.instagram.com/${msg.username}" target="_blank" rel="noopener" class="username-link">@${msg.username}</a>
                         ${msg.is_verified ? '<i class="fas fa-check-circle verified"></i>' : ''}
                         ${msg.is_private ? '<i class="fas fa-lock private"></i>' : ''}
                     </span>
                     ${msg.full_name ? `<span class="fullname">${msg.full_name}</span>` : ''}
+                    ${dateStr ? `<span class="request-date"><i class="far fa-clock"></i> ${dateStr}</span>` : ''}
                 </div>
                 <span class="status-badge ${statusClass}">${statusText}</span>
                 ${hasId ? `<button class="btn btn-ghost btn-sm" onclick="cancelSingle(${msg.user_id}, '${msg.username}', this)">Cancel</button>` : ''}
@@ -549,6 +560,115 @@ function autoCancelSent() {
         es.onerror = function () { es.close(); document.getElementById('progress-title').textContent = 'Connection Lost'; document.getElementById('progress-close-btn').style.display = 'inline-flex'; };
     })
     .catch(() => { showToast('Failed to start', 'error'); closeProgress(); });
+}
+
+async function cancelAllSentDirect() {
+    // Build request same as fetchSentRequests
+    const formData = new FormData();
+    let hasInput = false;
+
+    if (sentExtractedUsernames && sentExtractedUsernames.length > 0) {
+        formData.append('usernames', sentExtractedUsernames.join('\n'));
+        hasInput = true;
+    } else if (sentFile) {
+        formData.append('export_file', sentFile);
+        hasInput = true;
+    }
+
+    const pasteText = (document.getElementById('sent-username-input')?.value || '').trim();
+    if (pasteText) {
+        formData.append('usernames', pasteText);
+        hasInput = true;
+    }
+
+    if (!hasInput) {
+        showToast('Upload a file/folder or paste usernames first', 'error');
+        return;
+    }
+
+    // Step 1: Upload to get task_id
+    const btn = document.getElementById('cancel-direct-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+
+    try {
+        const resp = await fetch('/api/pending-sent', { method: 'POST', body: formData });
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        const data = await resp.json();
+
+        if (data.error) {
+            showToast(data.error, 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-bolt"></i> Cancel All Directly';
+            return;
+        }
+
+        const total = data.total;
+        if (!confirm(`Cancel ALL ${total} sent follow requests directly?\n\nThis will resolve each username and cancel immediately.\nEstimated time: ~${Math.ceil(total * 8 / 60)} minutes.`)) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-bolt"></i> Cancel All Directly';
+            return;
+        }
+
+        // Show progress overlay
+        document.getElementById('progress-title').textContent = 'Cancelling All Sent Requests...';
+        document.getElementById('progress-bar').style.width = '0%';
+        document.getElementById('progress-text').textContent = `0 / ${total}`;
+        document.getElementById('progress-pct').textContent = '0%';
+        document.getElementById('progress-succeeded').textContent = '0';
+        document.getElementById('progress-failed').textContent = '0';
+        document.getElementById('progress-log').innerHTML = '';
+        document.getElementById('progress-close-btn').style.display = 'none';
+        document.getElementById('progress-overlay').style.display = 'flex';
+
+        // Step 2: Stream cancel via SSE
+        const es = new EventSource(`/api/cancel-all-sent/${data.task_id}`);
+
+        es.onmessage = function (event) {
+            const msg = JSON.parse(event.data);
+
+            if (msg.type === 'complete') {
+                es.close();
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-bolt"></i> Cancel All Directly';
+                document.getElementById('progress-bar').style.width = '100%';
+                document.getElementById('progress-pct').textContent = '100%';
+                const reason = msg.reason === 'done' ? `Done! Cancelled ${msg.succeeded}, Skipped ${msg.skipped} not found` :
+                               msg.reason === 'rate_limited' ? `Rate Limited — Cancelled ${msg.succeeded} so far` : `Stopped — Cancelled ${msg.succeeded}`;
+                document.getElementById('progress-title').textContent = reason;
+                document.getElementById('progress-close-btn').style.display = 'inline-flex';
+                return;
+            }
+
+            // Progress update
+            const pct = Math.round(((msg.index + 1) / msg.total) * 100);
+            document.getElementById('progress-bar').style.width = pct + '%';
+            document.getElementById('progress-text').textContent = `${msg.index + 1} / ${msg.total}`;
+            document.getElementById('progress-pct').textContent = pct + '%';
+            document.getElementById('progress-succeeded').textContent = msg.succeeded;
+            document.getElementById('progress-failed').textContent = msg.failed + msg.skipped;
+
+            const statusText = msg.status === 'cancelled' ? 'Cancelled' :
+                              msg.status === 'not_found' ? 'Not Found' :
+                              msg.status === 'rate_limited' ? 'Rate Limited' :
+                              msg.status === 'cancel_failed' ? 'Failed' : msg.status;
+            const type = msg.status === 'cancelled' ? 'success' : 'fail';
+            addLogEntry(`@${msg.username}`, statusText, type);
+        };
+
+        es.onerror = function () {
+            es.close();
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-bolt"></i> Cancel All Directly';
+            document.getElementById('progress-title').textContent = 'Connection Lost';
+            document.getElementById('progress-close-btn').style.display = 'inline-flex';
+        };
+
+    } catch (e) {
+        showToast('Failed to start', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-bolt"></i> Cancel All Directly';
+    }
 }
 
 async function fetchNotFollowingBack() {
@@ -696,7 +816,7 @@ function renderUserList(containerId, users, actionLabel) {
                  onerror="this.src='/static/img/default-avatar.svg'" loading="lazy">
             <div class="user-info">
                 <span>
-                    <span class="username">@${user.username}</span>
+                    <a href="https://www.instagram.com/${user.username}" target="_blank" rel="noopener" class="username-link">@${user.username}</a>
                     ${user.is_verified ? '<i class="fas fa-check-circle verified"></i>' : ''}
                     ${user.is_private ? '<i class="fas fa-lock private"></i>' : ''}
                 </span>
@@ -727,6 +847,7 @@ function renderUserListWithStatus(containerId, users, actionLabel) {
         const hasId = user.user_id != null;
         const disabled = !hasId ? 'disabled' : '';
 
+        const dateStr = user.request_date || '';
         return `
         <div class="user-row" data-user-id="${user.user_id || ''}" data-index="${i}">
             <input type="checkbox" class="user-checkbox" value="${user.user_id || ''}"
@@ -735,11 +856,12 @@ function renderUserListWithStatus(containerId, users, actionLabel) {
                  onerror="this.src='/static/img/default-avatar.svg'" loading="lazy">
             <div class="user-info">
                 <span>
-                    <span class="username">@${user.username}</span>
+                    <a href="https://www.instagram.com/${user.username}" target="_blank" rel="noopener" class="username-link">@${user.username}</a>
                     ${user.is_verified ? '<i class="fas fa-check-circle verified"></i>' : ''}
                     ${user.is_private ? '<i class="fas fa-lock private"></i>' : ''}
                 </span>
                 ${user.full_name ? `<span class="fullname">${user.full_name}</span>` : ''}
+                ${dateStr ? `<span class="request-date"><i class="far fa-clock"></i> ${dateStr}</span>` : ''}
             </div>
             <span class="status-badge ${statusClass}">${statusText}</span>
             ${hasId ? `<button class="btn btn-ghost btn-sm" onclick="cancelSingle(${user.user_id}, '${user.username}', this)">${actionLabel}</button>` : ''}

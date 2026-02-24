@@ -75,14 +75,18 @@
             </div>
 
             <div class="sent-input-panel active" id="sent-input-upload">
-                <div class="upload-area" id="upload-area" onclick="document.getElementById('export-file').click()">
-                    <i class="fas fa-cloud-upload-alt"></i>
-                    <p>Drop your <strong>Instagram data export zip</strong> or folder here</p>
+                <div class="upload-area" id="upload-area" onclick="document.getElementById('export-folder').click()">
+                    <i class="fas fa-folder-open"></i>
+                    <p>Click to upload your <strong>Instagram data export folder</strong></p>
                     <small class="text-muted">We'll find pending_follow_requests.html automatically</small>
-                    <input type="file" id="export-file" accept=".zip,.html,.htm" style="display:none" onchange="handleSentFile(this)" multiple webkitdirectory>
+                    <input type="file" id="export-folder" style="display:none" onchange="handleSentFile(this)" webkitdirectory>
                 </div>
                 <div class="upload-alt">
                     <span class="text-muted">or</span>
+                    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('export-file').click()">
+                        <i class="fas fa-file-code"></i> Upload HTML file
+                    </button>
+                    <input type="file" id="export-file" accept=".html,.htm" style="display:none" onchange="handleSentFile(this)">
                     <button class="btn btn-ghost btn-sm" onclick="document.getElementById('export-zip').click()">
                         <i class="fas fa-file-zipper"></i> Upload zip file
                     </button>
@@ -95,9 +99,14 @@
                           placeholder="username1&#10;username2&#10;username3&#10;..."></textarea>
             </div>
 
-            <button class="btn btn-primary btn-full" onclick="fetchSentRequests()" id="fetch-sent-btn">
-                <i class="fas fa-search"></i> Check Requests
-            </button>
+            <div style="display:flex;gap:0.5rem">
+                <button class="btn btn-primary" style="flex:1" onclick="fetchSentRequests()" id="fetch-sent-btn">
+                    <i class="fas fa-search"></i> Check Requests
+                </button>
+                <button class="btn btn-danger" style="flex:1" onclick="cancelAllSentDirect()" id="cancel-direct-btn">
+                    <i class="fas fa-bolt"></i> Cancel All Directly
+                </button>
+            </div>
         </div>
 
         <!-- Filter buttons (shown after results) -->

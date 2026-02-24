@@ -451,6 +451,31 @@ h2 { font-size: 1.25rem; font-weight: 600; }
     text-overflow: ellipsis;
 }
 
+.username-link {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: color 0.2s;
+}
+
+.username-link:hover {
+    color: var(--purple);
+    text-decoration: underline;
+}
+
+.request-date {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.125rem;
+}
+
+.request-date i {
+    margin-right: 0.25rem;
+    font-size: 0.6875rem;
+}
+
 .user-row .btn { flex-shrink: 0; }
 
 /* Step cards */

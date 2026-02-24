@@ -158,11 +158,23 @@ def api_extract_zip():
 
             html = zf.read(target).decode("utf-8", errors="ignore")
             usernames = []
-            for match in re.findall(r'href="https://www\.instagram\.com/([^"/?]+)"', html):
-                if match not in usernames:
-                    usernames.append(match)
+            username_dates = {}
+            # Try to extract username + date pairs
+            pairs = re.findall(
+                r'href="https://www\.instagram\.com/([^"/?]+)"[^<]*</a></div>\s*<div>([^<]+)</div>',
+                html,
+            )
+            if pairs:
+                for uname, date_str in pairs:
+                    if uname not in usernames:
+                        usernames.append(uname)
+                        username_dates[uname] = date_str.strip()
+            else:
+                for match in re.findall(r'href="https://www\.instagram\.com/([^"/?]+)"', html):
+                    if match not in usernames:
+                        usernames.append(match)
 
-            return jsonify({"usernames": usernames, "count": len(usernames), "file": target})
+            return jsonify({"usernames": usernames, "dates": username_dates, "count": len(usernames), "file": target})
 
     except zipfile.BadZipFile:
         return jsonify({"error": "Not a valid zip file."}), 400
@@ -181,13 +193,27 @@ def api_pending_sent():
 
     content_type = request.content_type or ""
 
+    username_dates = {}  # username -> date string from data export
+
     if "multipart/form-data" in content_type:
         uploaded = request.files.get("export_file")
         if uploaded and uploaded.filename:
             html = uploaded.read().decode("utf-8", errors="ignore")
-            for match in re.findall(r'href="https://www\.instagram\.com/([^"/?]+)"', html):
-                if match not in usernames:
-                    usernames.append(match)
+            # Try to extract username + date pairs first
+            pairs = re.findall(
+                r'href="https://www\.instagram\.com/([^"/?]+)"[^<]*</a></div>\s*<div>([^<]+)</div>',
+                html,
+            )
+            if pairs:
+                for uname, date_str in pairs:
+                    if uname not in usernames:
+                        usernames.append(uname)
+                        username_dates[uname] = date_str.strip()
+            else:
+                # Fallback: just usernames
+                for match in re.findall(r'href="https://www\.instagram\.com/([^"/?]+)"', html):
+                    if match not in usernames:
+                        usernames.append(match)
         raw = request.form.get("usernames", "")
         if raw:
             for u in re.split(r'[\n,\s]+', raw):
@@ -205,10 +231,11 @@ def api_pending_sent():
     if not usernames:
         return jsonify({"error": "No usernames provided."}), 400
 
-    # Store usernames in session for the SSE stream to pick up
+    # Store usernames and dates in session for the SSE stream to pick up
     task_id = f"sent_{session['ig_ds_user_id']}_{int(time.time())}"
     cancel_tasks[task_id] = {
         "usernames": usernames,
+        "username_dates": username_dates,
         "status": "pending",
     }
 
@@ -224,6 +251,7 @@ def api_check_sent(task_id):
         return jsonify({"error": "Task not found"}), 404
 
     usernames = task["usernames"]
+    username_dates = task.get("username_dates", {})
     cookies = {
         "session_id": session["ig_session_id"],
         "ds_user_id": session["ig_ds_user_id"],
@@ -236,6 +264,9 @@ def api_check_sent(task_id):
 
         for i, username in enumerate(usernames):
             user_data = {"username": username, "index": i, "total": total}
+            # Include date from data export if available
+            if username in username_dates:
+                user_data["request_date"] = username_dates[username]
 
             try:
                 user = api.get_user_by_username(username)
@@ -275,6 +306,90 @@ def api_check_sent(task_id):
                 time.sleep(Config.FETCH_PAGE_DELAY)
 
         yield f"data: {json.dumps({'type': 'complete', 'reason': 'done'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+@app.route("/api/cancel-all-sent/<task_id>")
+@login_required
+def api_cancel_all_sent(task_id):
+    """SSE stream: resolve each username and immediately cancel the follow request."""
+    task = cancel_tasks.get(task_id)
+    if not task or "usernames" not in task:
+        return jsonify({"error": "Task not found"}), 404
+
+    usernames = task["usernames"]
+    username_dates = task.get("username_dates", {})
+    cookies = {
+        "session_id": session["ig_session_id"],
+        "ds_user_id": session["ig_ds_user_id"],
+        "csrf_token": session["ig_csrf_token"],
+    }
+
+    def generate():
+        api = InstagramAPI(cookies["session_id"], cookies["ds_user_id"], cookies["csrf_token"])
+        total = len(usernames)
+        succeeded = 0
+        failed = 0
+        skipped = 0
+
+        for i, username in enumerate(usernames):
+            result = {"username": username, "index": i, "total": total}
+            if username in username_dates:
+                result["request_date"] = username_dates[username]
+
+            try:
+                user = api.get_user_by_username(username)
+                if user and user.get("user_id"):
+                    result["user_id"] = user["user_id"]
+                    result["profile_pic_url"] = user.get("profile_pic_url", "")
+                    result["full_name"] = user.get("full_name", "")
+                    try:
+                        api.cancel_follow_request(user["user_id"])
+                        result["status"] = "cancelled"
+                        succeeded += 1
+                    except Exception as e:
+                        result["status"] = "cancel_failed"
+                        result["error"] = str(e)
+                        failed += 1
+                else:
+                    result["status"] = "not_found"
+                    skipped += 1
+            except RateLimitError:
+                result["status"] = "rate_limited"
+                failed += 1
+                result["succeeded"] = succeeded
+                result["failed"] = failed
+                result["skipped"] = skipped
+                yield f"data: {json.dumps(result)}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'reason': 'rate_limited', 'succeeded': succeeded, 'failed': failed, 'skipped': skipped})}\n\n"
+                return
+            except AuthenticationError:
+                result["status"] = "auth_error"
+                failed += 1
+                result["succeeded"] = succeeded
+                result["failed"] = failed
+                result["skipped"] = skipped
+                yield f"data: {json.dumps(result)}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'reason': 'auth_error', 'succeeded': succeeded, 'failed': failed, 'skipped': skipped})}\n\n"
+                return
+            except Exception:
+                result["status"] = "error"
+                failed += 1
+
+            result["succeeded"] = succeeded
+            result["failed"] = failed
+            result["skipped"] = skipped
+            yield f"data: {json.dumps(result)}\n\n"
+
+            if i < total - 1:
+                time.sleep(random.uniform(Config.CANCEL_DELAY_MIN, Config.CANCEL_DELAY_MAX))
+
+        yield f"data: {json.dumps({'type': 'complete', 'reason': 'done', 'succeeded': succeeded, 'failed': failed, 'skipped': skipped})}\n\n"
 
     return Response(
         stream_with_context(generate()),
