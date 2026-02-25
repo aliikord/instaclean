@@ -89,29 +89,46 @@ class InstagramAPI:
     # ------------------------------------------------------------------
 
     def get_user_by_username(self, username):
-        """Look up a user's ID and info by username."""
-        url = f"{Config.IG_BASE_URL}/users/web_profile_info/"
-        params = {"username": username}
+        """Look up a user's ID and info by username (tries multiple endpoints)."""
+        # Try 1: Mobile API endpoint
         try:
-            resp = self.http.get(url, params=params, timeout=15)
-            if resp.status_code == 404:
-                return None
-            data = self._handle(resp) if resp.status_code != 404 else None
-            if not data:
-                return None
-            user = data.get("data", {}).get("user", {})
-            if not user:
-                return None
-            return {
-                "user_id": user.get("id"),
-                "username": user.get("username"),
-                "full_name": user.get("full_name", ""),
-                "profile_pic_url": user.get("profile_pic_url", ""),
-                "is_private": user.get("is_private", False),
-                "is_verified": user.get("is_verified", False),
-            }
+            url = f"{Config.IG_BASE_URL}/users/{username}/usernameinfo/"
+            resp = self.http.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                user = data.get("user", {})
+                if user and user.get("pk"):
+                    return {
+                        "user_id": user.get("pk"),
+                        "username": user.get("username", username),
+                        "full_name": user.get("full_name", ""),
+                        "profile_pic_url": user.get("profile_pic_url", ""),
+                        "is_private": user.get("is_private", False),
+                        "is_verified": user.get("is_verified", False),
+                    }
         except Exception:
-            return None
+            pass
+
+        # Try 2: Web profile info endpoint
+        try:
+            url = "https://www.instagram.com/api/v1/users/web_profile_info/"
+            resp = self.http.get(url, params={"username": username}, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                user = data.get("data", {}).get("user", {})
+                if user and user.get("id"):
+                    return {
+                        "user_id": user.get("id"),
+                        "username": user.get("username", username),
+                        "full_name": user.get("full_name", ""),
+                        "profile_pic_url": user.get("profile_pic_url", ""),
+                        "is_private": user.get("is_private", False),
+                        "is_verified": user.get("is_verified", False),
+                    }
+        except Exception:
+            pass
+
+        return None
 
     def check_friendship(self, user_id):
         """Check relationship status with a user. Returns dict with outgoing_request, following, etc."""
